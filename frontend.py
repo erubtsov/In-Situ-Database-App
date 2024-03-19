@@ -9,9 +9,10 @@ from kivy.uix.boxlayout import BoxLayout
 
 
 class DirectorySelectPopup(Popup):
-    def __init__(self, callback, **kwargs):
+    def __init__(self, callback, purpose, **kwargs):
         super(DirectorySelectPopup, self).__init__(**kwargs)
         self.callback = callback
+        self.purpose = purpose
         self.title = "Select Directory"
         self.size_hint = (0.8, 0.8)
 
@@ -27,9 +28,14 @@ class DirectorySelectPopup(Popup):
         layout.add_widget(self.text_input)
 
         # Add a button to open the directory selector
-        button = Button(text="Browse")
-        button.bind(on_press=self.select_directory)
-        layout.add_widget(button)
+        browse_button = Button(text="Browse")
+        browse_button.bind(on_press=self.select_directory)
+        layout.add_widget(browse_button)
+
+        # Add a button to select the directory and close the popup
+        select_button = Button(text="Select")
+        select_button.bind(on_press=self.select_and_close)
+        layout.add_widget(select_button)
 
         self.content = layout
 
@@ -43,7 +49,11 @@ class DirectorySelectPopup(Popup):
 
         if directory_path:
             self.text_input.text = directory_path
-            self.callback(directory_path)
+
+    def select_and_close(self, instance):
+        directory_path = self.text_input.text
+        if directory_path:
+            self.callback(directory_path, self.purpose)
             self.dismiss()
 
 
@@ -89,8 +99,14 @@ class PostgreSQLApp(App):
         return layout
 
     def open_directory_selector(self, purpose):
-        popup = DirectorySelectPopup(callback=lambda directory_path: self.select_directory_callback(directory_path, purpose))
+        popup = DirectorySelectPopup(callback=self.select_directory_callback, purpose=purpose)
+        popup.bind(on_dismiss=lambda instance: self.update_button_text(purpose, instance.text_input.text))
         popup.open()
+
+    def update_button_text(self, purpose, directory_path):
+        for widget in self.root.children:
+            if isinstance(widget, Button) and f"Select {purpose} Directory" in widget.text:
+                widget.text = f"Selected Path: {directory_path}" if directory_path else f"Select {purpose} Directory"
 
 
 if __name__ == '__main__':
