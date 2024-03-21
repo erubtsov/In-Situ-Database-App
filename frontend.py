@@ -1,11 +1,42 @@
-import socket
-import json
 from kivy.app import App
 from kivy.uix.popup import Popup
 from kivy.uix.button import Button
 from kivy.uix.label import Label
 from kivy.uix.textinput import TextInput
 from kivy.uix.boxlayout import BoxLayout
+import socket
+import json
+
+class PasswordPopup(Popup):
+    def __init__(self, callback, **kwargs):
+        super(PasswordPopup, self).__init__(**kwargs)
+        self.callback = callback
+        self.title = "Enter Database Password"
+        self.size_hint = (0.6, 0.4)
+
+        # Create a box layout for the content
+        layout = BoxLayout(orientation='vertical', padding=10)
+
+        # Add a label
+        label = Label(text="Enter password:")
+        layout.add_widget(label)
+
+        # Add a text input for the password
+        self.password_input = TextInput(text="", multiline=False, password=True)
+        layout.add_widget(self.password_input)
+
+        # Add a button to submit the password
+        submit_button = Button(text="Submit")
+        submit_button.bind(on_press=self.submit_password)
+        layout.add_widget(submit_button)
+
+        self.content = layout
+
+    def submit_password(self, instance):
+        password = self.password_input.text
+        if password:
+            self.callback(password)
+            self.dismiss()
 
 
 class DirectorySelectPopup(Popup):
@@ -57,16 +88,44 @@ class DirectorySelectPopup(Popup):
             self.dismiss()
 
 
+class ErrorPopup(Popup):
+    def __init__(self, error_message, on_retry, **kwargs):
+        super(ErrorPopup, self).__init__(**kwargs)
+        self.title = "Error"
+        self.size_hint = (0.6, 0.4)
+        self.on_retry = on_retry  # Callback function for retrying password
+
+        # Create a box layout for the content
+        layout = BoxLayout(orientation='vertical', padding=10)
+
+        # Add a label to display the error message
+        label = Label(text=error_message)
+        layout.add_widget(label)
+
+        # Add a button to allow retrying password
+        retry_button = Button(text="Retry")
+        retry_button.bind(on_press=self.retry_password)  # Bind directly to the function
+        layout.add_widget(retry_button)
+
+        self.content = layout
+
+    def retry_password(self, instance):
+        self.on_retry()  # Call the retry function
+        self.dismiss()  # Dismiss the popup
+
+
 class PostgreSQLApp(App):
     def __init__(self, **kwargs):
         super(PostgreSQLApp, self).__init__(**kwargs)
         self.selected_directories = {
             "Characteristics": "",
             "BenchTop Filament Diameter": "",
-            "Live Print Data": ""
+            "Live Print Data": "",
+            "Parts Quality": ""  # Add Parts Quality directory
         }
         self.backend_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.backend_socket.connect(("localhost", 5555))
+        self.password = None
 
     def select_directory_callback(self, directory_path, purpose):
         self.selected_directories[purpose] = directory_path
@@ -76,27 +135,21 @@ class PostgreSQLApp(App):
         print("Uploading Data...")
         # Prepare data to send to the backend
         data = {
-            "selected_directories": self.selected_directories
+            "selected_directories": self.selected_directories,
+            "password": self.password
         }
+        print("Data to be sent to backend:", data)  # Add this line for debugging
         # Send data to the backend
         self.backend_socket.send(json.dumps(data).encode())
         print("Data uploaded successfully.")
 
     def build(self):
-        layout = BoxLayout(orientation='vertical')
+        self.layout = BoxLayout(orientation='vertical')
 
-        # Add directory selection buttons
-        for purpose in self.selected_directories.keys():
-            select_button = Button(text=f"Select {purpose} Directory")
-            select_button.bind(on_press=lambda instance, purpose=purpose: self.open_directory_selector(purpose))
-            layout.add_widget(select_button)
+        # Add password input button
+        self.open_password_popup()
 
-        # Add upload button to the main layout
-        upload_button = Button(text="Upload Data")
-        upload_button.bind(on_press=lambda instance: self.upload_data())
-        layout.add_widget(upload_button)
-
-        return layout
+        return self.layout
 
     def open_directory_selector(self, purpose):
         popup = DirectorySelectPopup(callback=self.select_directory_callback, purpose=purpose)
@@ -104,9 +157,47 @@ class PostgreSQLApp(App):
         popup.open()
 
     def update_button_text(self, purpose, directory_path):
-        for widget in self.root.children:
+        for widget in self.layout.children:
             if isinstance(widget, Button) and f"Select {purpose} Directory" in widget.text:
                 widget.text = f"Selected Path: {directory_path}" if directory_path else f"Select {purpose} Directory"
+
+    def open_password_popup(self):
+        popup = PasswordPopup(callback=self.verify_password)
+        popup.open()
+
+    def verify_password(self, password):
+        self.password = password
+        # Send the password to the backend for verification
+        data = {"password": self.password}
+        self.backend_socket.send(json.dumps(data).encode())
+        response = self.backend_socket.recv(1024).decode()
+        if response == "Correct":
+            self.show_buttons()
+        else:
+            self.show_password_error()
+
+    def show_buttons(self):
+        # Add directory selection buttons
+        for purpose in self.selected_directories.keys():
+            select_button = Button(text=f"Select {purpose} Directory")
+            select_button.bind(on_press=lambda instance, purpose=purpose: self.open_directory_selector(purpose))
+            self.layout.add_widget(select_button)
+
+        # Add upload button to the main layout
+        upload_button = Button(text="Upload Data")
+        upload_button.bind(on_press=lambda instance: self.upload_data())
+        self.layout.add_widget(upload_button)
+
+
+    def show_password_error(self):
+        def retry_password():
+            self.open_password_popup()
+
+        error_popup = ErrorPopup(
+            error_message="Incorrect password. Please try again.",
+            on_retry=retry_password
+        )
+        error_popup.open()
 
 
 if __name__ == '__main__':
