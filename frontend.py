@@ -83,17 +83,17 @@ class DirectorySelectPopup(Popup):
 
     def select_and_close(self, instance):
         directory_path = self.text_input.text
-        if directory_path:
-            self.callback(directory_path, self.purpose)
-            self.dismiss()
+        self.callback(directory_path, self.purpose)
+        self.dismiss()
 
 
 class ErrorPopup(Popup):
-    def __init__(self, error_message, on_retry, **kwargs):
+    def __init__(self, error_message, on_retry, retry_callback, **kwargs):
         super(ErrorPopup, self).__init__(**kwargs)
         self.title = "Error"
         self.size_hint = (0.6, 0.4)
         self.on_retry = on_retry  # Callback function for retrying password
+        self.retry_callback = retry_callback  # Callback function to send retry signal to backend
 
         # Create a box layout for the content
         layout = BoxLayout(orientation='vertical', padding=10)
@@ -111,6 +111,7 @@ class ErrorPopup(Popup):
 
     def retry_password(self, instance):
         self.on_retry()  # Call the retry function
+        self.retry_callback()  # Send the retry signal to the backend
         self.dismiss()  # Dismiss the popup
 
 
@@ -121,27 +122,38 @@ class PostgreSQLApp(App):
             "Characteristics": "",
             "BenchTop Filament Diameter": "",
             "Live Print Data": "",
-            "Parts Quality": ""  # Add Parts Quality directory
+            "Parts Quality": ""
         }
+        self.backend_socket = None  # Initialize backend socket to None
+        self.password = None
+
+    def connect_to_backend(self):
         self.backend_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.backend_socket.connect(("localhost", 5555))
-        self.password = None
 
     def select_directory_callback(self, directory_path, purpose):
         self.selected_directories[purpose] = directory_path
         print(f"Selected {purpose} directory:", directory_path)
 
     def upload_data(self):
-        print("Uploading Data...")
-        # Prepare data to send to the backend
-        data = {
-            "selected_directories": self.selected_directories,
-            "password": self.password
-        }
-        print("Data to be sent to backend:", data)  # Add this line for debugging
-        # Send data to the backend
-        self.backend_socket.send(json.dumps(data).encode())
-        print("Data uploaded successfully.")
+        if self.backend_socket is None:  # Check if the backend socket is not connected
+            self.connect_to_backend()
+
+        # Check if at least one directory is selected
+        if any(self.selected_directories.values()):
+            print("Uploading Data...")
+            # Prepare data to send to the backend
+            data = {
+                "selected_directories": self.selected_directories,
+                "password": self.password,
+                "signal": "DataUpload"  # Add the signal here
+            }
+            print("Data to be sent to backend:", data)  # Add this line for debugging
+            # Send data to the backend
+            self.backend_socket.send(json.dumps(data).encode())
+            print("Data uploaded successfully.")
+        else:
+            print("Please select at least one directory before uploading data.")
 
     def build(self):
         self.layout = BoxLayout(orientation='vertical')
@@ -167,6 +179,11 @@ class PostgreSQLApp(App):
 
     def verify_password(self, password):
         self.password = password
+        # Check if the backend socket is not connected
+        if self.backend_socket is None:
+            # If not connected, establish the connection
+            self.connect_to_backend()
+
         # Send the password to the backend for verification
         data = {"password": self.password}
         self.backend_socket.send(json.dumps(data).encode())
@@ -177,28 +194,41 @@ class PostgreSQLApp(App):
             self.show_password_error()
 
     def show_buttons(self):
+        # Clear existing widgets
+        self.layout.clear_widgets()
+
         # Add directory selection buttons
         for purpose in self.selected_directories.keys():
             select_button = Button(text=f"Select {purpose} Directory")
             select_button.bind(on_press=lambda instance, purpose=purpose: self.open_directory_selector(purpose))
             self.layout.add_widget(select_button)
 
-        # Add upload button to the main layout
+        # Upload Button
         upload_button = Button(text="Upload Data")
         upload_button.bind(on_press=lambda instance: self.upload_data())
         self.layout.add_widget(upload_button)
-
 
     def show_password_error(self):
         def retry_password():
             self.open_password_popup()
 
+        def retry_callback():
+            if self.backend_socket is None:  # Check if the backend socket is not connected
+                self.connect_to_backend()
+            data = {"retry": "RetryPassword"}
+            self.backend_socket.send(json.dumps(data).encode())
+
         error_popup = ErrorPopup(
             error_message="Incorrect password. Please try again.",
-            on_retry=retry_password
+            on_retry=retry_password,
+            retry_callback=retry_callback  # Pass the retry callback
         )
         error_popup.open()
 
+    def on_stop(self):
+        if self.backend_socket is not None:
+            self.backend_socket.close()  # Close the backend socket when the application is stopped
 
 if __name__ == '__main__':
     PostgreSQLApp().run()
+
