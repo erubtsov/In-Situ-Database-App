@@ -38,7 +38,7 @@ def load_parts_id(directory_path, conn):
         cursor = conn.cursor()
         print("Loading part IDs from directory:", directory_path)
         for filename in os.listdir(directory_path):
-            if filename.endswith(".tdms"):
+            if filename.endswith(".tdms") or filename.endswith(".CSV"):
                 part_id = os.path.splitext(filename)[0]
                 print("Extracted part ID:", part_id)
                 sql_insert = 'INSERT INTO "FilamentQuality"."parts" ("part_ID") VALUES (%s)'
@@ -69,25 +69,24 @@ def query_parts(conn):
 def handle_client(client_socket, conn):
     global directories
 
-    while True:
-        data = client_socket.recv(1024).decode()
+    # Receive password
+    password_data = client_socket.recv(1024).decode()
+    password = json.loads(password_data).get('password', '')
 
-        try:
-            data = json.loads(data)
-        except json.JSONDecodeError as e:
-            print("Error decoding JSON data:", e)
-            client_socket.send("Invalid JSON data received".encode())
-            continue
+    # Check if there is an existing database connection
+    if conn is None:
+        conn = connect_to_database(password)
 
-        password = data.get('password', '')
-
-        # Check if there is an existing database connection
-        if conn is None:
-            conn = connect_to_database(password)
-
-        if conn:
-            client_socket.send("Correct".encode())
-            selected_directories = data.get('selected_directories', {})
+    if conn:
+        client_socket.send("Correct".encode())
+        print("Waiting for signal...")
+        # Receive signal
+        signal_data = client_socket.recv(1024).decode()
+        signal = json.loads(signal_data).get('signal', '')
+        if signal == "DataUpload":
+            # Receive selected directories
+            selected_directories_data = client_socket.recv(1024).decode()
+            selected_directories = json.loads(selected_directories_data).get('selected_directories', {})
             for purpose, directory_path in selected_directories.items():
                 if purpose == "Characteristics":
                     if isinstance(directory_path, dict):
@@ -97,16 +96,26 @@ def handle_client(client_socket, conn):
                 elif purpose == "Parts Quality":
                     if "pressure" in directory_path.lower():
                         directories["Parts Quality"]["pressure"] = directory_path
-                        load_parts_id(directory_path, conn)
+                        #load_parts_id(directory_path, conn)
+
+                elif purpose == "BenchTop Filament Diameter":
+                        directories["BenchTop Filament Diameter"] = directory_path
+                        #load_parts_id(directory_path, conn)
+
             print("Selected directories:", directories)
             query_parts(conn)
-            break  # Exit the loop if the password is correct
         else:
-            client_socket.send("Incorrect".encode())
-
-    # Close the client socket
-    client_socket.close()
-
+            print("Invalid signal received.")
+    else:
+        client_socket.send("Incorrect".encode())
+        # Receive retry signal
+        retry_data = client_socket.recv(1024).decode()
+        retry_signal = json.loads(retry_data).get('retry', '')
+        if retry_signal == "RetryPassword":
+            handle_client(client_socket, None)  # Retry handling the client with a new connection
+        else:
+            print("Invalid retry signal received.")
+    
 def main():
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_socket.bind(('localhost', 5555))
@@ -124,4 +133,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
