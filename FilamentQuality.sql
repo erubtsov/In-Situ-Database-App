@@ -26,41 +26,67 @@ BEGIN
     END IF;
 END$$;
 
--- Create the tables
-CREATE TABLE IF NOT EXISTS "FilamentQuality"."parts" (
-    "part_ID" VARCHAR(50) NOT NULL,
-    "material_ID" VARCHAR(50),
-    CONSTRAINT "pk_parts" PRIMARY KEY ("part_ID")
+-- Exported from QuickDBD: https://www.quickdatabasediagrams.com/
+-- Link to schema: https://app.quickdatabasediagrams.com/#/d/KSlYlm
+-- NOTE! If you have used non-SQL datatypes in your design, you will have to change these here.
+
+
+CREATE TABLE "FilamentQuality"."Live_Print_Data" (
+    "part_ID" varchar(50)   NOT NULL,
+    "time_stamp" real   NOT NULL,
+    "characteristic_name" varchar(100)   NOT NULL,
+    "characteristic_value" real   NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS "FilamentQuality"."Live_Print_Data" (
-    "time_stamp" REAL NOT NULL,
-    "part_ID" VARCHAR(50) NOT NULL,
-    "characteristic_name" VARCHAR(100) NOT NULL,
-    "characteristic_value" REAL NOT NULL,
-    CONSTRAINT "fk_Live_Print_Data_part_ID" FOREIGN KEY ("part_ID") REFERENCES "FilamentQuality"."parts" ("part_ID")
+CREATE TABLE "FilamentQuality"."BenchTop_Filament_Diameter" (
+    "part_ID" varchar(50)   NOT NULL,
+    "position" real   NOT NULL,
+    "characteristic_name" varchar(100)   NOT NULL,
+    "characteristic_value" real   NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS "FilamentQuality"."BenchTop_Filament_Diameter" (
-    "part_ID" VARCHAR(50) NOT NULL,
-    "position" REAL NOT NULL,
-    "characteristic_name" VARCHAR(100) NOT NULL,
-    "characteristic_value" REAL NOT NULL,
-    CONSTRAINT "fk_BenchTop_Filament_Diameter_part_ID" FOREIGN KEY ("part_ID") REFERENCES "FilamentQuality"."parts" ("part_ID")
+CREATE TABLE "FilamentQuality"."parts" (
+    "part_ID" varchar(50)   NOT NULL,
+    "material_ID" varchar(50)   NOT NULL,
+    CONSTRAINT "pk_parts" PRIMARY KEY (
+        "part_ID"
+     )
 );
 
-CREATE TABLE IF NOT EXISTS "FilamentQuality"."characteristics" (
-    "material_ID" VARCHAR(50) NOT NULL,
-    "time_elapsed" REAL NOT NULL,
-    "characteristic_name" VARCHAR(100) NOT NULL,
-    "characteristic_value" REAL NOT NULL,
-    CONSTRAINT "pk_characteristics" PRIMARY KEY ("material_ID")
+CREATE TABLE "FilamentQuality"."Part_characteristics" (
+    "part_ID" varchar(50)   NOT NULL,
+    "time_elapsed" real   NOT NULL,
+    "characteristic_name" varchar(100)   NOT NULL,
+    "characteristic_value" real   NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS "FilamentQuality"."Part_Quality" (
-    "time_elapsed" REAL NOT NULL,
-    "part_ID" VARCHAR(50) NOT NULL,
-    "characteristic_name" VARCHAR(100) NOT NULL,
-    "characteristic_value" REAL NOT NULL,
-    CONSTRAINT "fk_Part_Quality_part_ID" FOREIGN KEY ("part_ID") REFERENCES "FilamentQuality"."parts" ("part_ID")
+CREATE TABLE "FilamentQuality"."material_characteristics" (
+    "material_ID" varchar(50)   NOT NULL,
+    "time_elapsed" real   NOT NULL,
+    "characteristic_name" varchar(100)   NOT NULL,
+    "characteristic_value" real   NOT NULL
 );
+
+CREATE TABLE "FilamentQuality"."materials" (
+    "material_id" varchar(50)   NOT NULL,
+    CONSTRAINT "pk_materials" PRIMARY KEY (
+        "material_id"
+     )
+);
+
+ALTER TABLE "FilamentQuality"."Live_Print_Data" ADD CONSTRAINT "fk_Live_Print_Data_part_ID" FOREIGN KEY("part_ID")
+REFERENCES "FilamentQuality"."parts" ("part_ID");
+
+ALTER TABLE "FilamentQuality"."BenchTop_Filament_Diameter" ADD CONSTRAINT "fk_BenchTop_Filament_Diameter_part_ID" FOREIGN KEY("part_ID")
+REFERENCES "FilamentQuality"."parts" ("part_ID");
+
+ALTER TABLE "FilamentQuality"."parts" ADD CONSTRAINT "fk_parts_material_ID" FOREIGN KEY("material_ID")
+REFERENCES "FilamentQuality"."materials" ("material_id");
+
+ALTER TABLE "FilamentQuality"."Part_characteristics" ADD CONSTRAINT "fk_Part_characteristics_part_ID" FOREIGN KEY("part_ID")
+REFERENCES "FilamentQuality"."parts" ("part_ID");
+
+ALTER TABLE "FilamentQuality"."material_characteristics" ADD CONSTRAINT "fk_material_characteristics_material_ID" FOREIGN KEY("material_ID")
+REFERENCES "FilamentQuality"."materials" ("material_id");
+
+
