@@ -18,18 +18,18 @@ BEGIN
         FROM information_schema.tables
         WHERE table_schema = 'FilamentQuality'
     ) THEN
-        DROP TABLE IF EXISTS "FilamentQuality"."Part_Quality";
-        DROP TABLE IF EXISTS "FilamentQuality"."Characterization";
-        DROP TABLE IF EXISTS "FilamentQuality"."BenchTop_Filament_Diameter";
-        DROP TABLE IF EXISTS "FilamentQuality"."Live_Print_Data";
-        DROP TABLE IF EXISTS "FilamentQuality"."parts";
+	 	DROP TABLE IF EXISTS "FilamentQuality"."characteristics" CASCADE;
+        DROP TABLE IF EXISTS "FilamentQuality"."part_characteristics" CASCADE; -- Cascade to drop dependent objects
+        DROP TABLE IF EXISTS "FilamentQuality"."material_characteristics" CASCADE; -- Cascade to drop dependent objects
+        DROP TABLE IF EXISTS "FilamentQuality"."materials" CASCADE; -- Cascade to drop dependent objects
+        DROP TABLE IF EXISTS "FilamentQuality"."BenchTop_Filament_Diameter" CASCADE; -- Cascade to drop dependent objects
+        DROP TABLE IF EXISTS "FilamentQuality"."Live_Print_Data" CASCADE; -- Cascade to drop dependent objects
+        DROP TABLE IF EXISTS "FilamentQuality"."parts" CASCADE; -- Cascade to drop dependent objects
     END IF;
 END$$;
 
 -- Exported from QuickDBD: https://www.quickdatabasediagrams.com/
 -- Link to schema: https://app.quickdatabasediagrams.com/#/d/KSlYlm
--- NOTE! If you have used non-SQL datatypes in your design, you will have to change these here.
-
 
 CREATE TABLE "FilamentQuality"."Live_Print_Data" (
     "part_ID" varchar(50)   NOT NULL,
@@ -48,12 +48,11 @@ CREATE TABLE "FilamentQuality"."BenchTop_Filament_Diameter" (
 CREATE TABLE "FilamentQuality"."parts" (
     "part_ID" varchar(50)   NOT NULL,
     "material_ID" varchar(50)   NOT NULL,
-    CONSTRAINT "pk_parts" PRIMARY KEY (
-        "part_ID"
-     )
+    "part_type" varchar(50) NOT NULL,
+    CONSTRAINT "pk_parts" PRIMARY KEY ("part_ID") -- Adding primary key constraint
 );
 
-CREATE TABLE "FilamentQuality"."Part_characteristics" (
+CREATE TABLE "FilamentQuality"."part_characteristics" (
     "part_ID" varchar(50)   NOT NULL,
     "time_elapsed" real   NOT NULL,
     "characteristic_name" varchar(100)   NOT NULL,
@@ -83,10 +82,8 @@ REFERENCES "FilamentQuality"."parts" ("part_ID");
 ALTER TABLE "FilamentQuality"."parts" ADD CONSTRAINT "fk_parts_material_ID" FOREIGN KEY("material_ID")
 REFERENCES "FilamentQuality"."materials" ("material_id");
 
-ALTER TABLE "FilamentQuality"."Part_characteristics" ADD CONSTRAINT "fk_Part_characteristics_part_ID" FOREIGN KEY("part_ID")
+ALTER TABLE "FilamentQuality"."part_characteristics" ADD CONSTRAINT "fk_Part_characteristics_part_ID" FOREIGN KEY("part_ID")
 REFERENCES "FilamentQuality"."parts" ("part_ID");
 
 ALTER TABLE "FilamentQuality"."material_characteristics" ADD CONSTRAINT "fk_material_characteristics_material_ID" FOREIGN KEY("material_ID")
 REFERENCES "FilamentQuality"."materials" ("material_id");
-
-
