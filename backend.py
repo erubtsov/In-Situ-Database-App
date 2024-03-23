@@ -68,7 +68,7 @@ def load_parts_id(directory_path, conn):
                     if not material_exists:
                         insert_material(conn, material_id)  # Call check_and_insert_material to check and insert material
                     else:
-                        print("load_parts_ID: Material ID already exists in the 'materials' table:", material_id)
+                        print("Material ID already exists in the 'materials' table:", material_id)
                         
                     sql_query = 'SELECT "part_ID" FROM "FilamentQuality"."parts" WHERE lower("part_ID") = %s'
                     cursor.execute(sql_query, (part_id.lower(),))  # Compare with lowercase part_id
@@ -79,18 +79,10 @@ def load_parts_id(directory_path, conn):
                         cursor.execute(sql_insert, (part_id, material_id, part_type))
                         conn.commit()
                         print("Part ID inserted successfully:", part_id)
+                        # Call load_pressure after inserting a new part ID
+                        load_pressure(os.path.join(directory_path, filename), conn)
                     else:
                         print("Part ID already exists:", part_id)
-                    
-                    # Determine the purpose and call the corresponding function
-                    for purpose, path in directories.items():
-                        if isinstance(path, str) and directory_path.lower() == path.lower():
-                            print("Directory captured for purpose:", purpose)
-                            if purpose == "Parts Quality":
-                                if "pressure" in directory_path.lower():
-                                    load_pressure(directory_path, conn)
-                                # Add more conditions for other purposes if needed
-                            break
     except psycopg2.Error as e:
         conn.rollback()  # Rollback transaction in case of error
         print("Error loading part IDs:", e)
