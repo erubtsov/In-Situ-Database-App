@@ -79,7 +79,7 @@ def load_parts_id(directory_path, conn):
                         cursor.execute(sql_insert, (part_id, material_id, part_type))
                         conn.commit()
                         print("Part ID inserted successfully:", part_id)
-                        # Call load_pressure after inserting a new part ID
+                        # Call load_pressure after inserting a new part ID, passing the file path
                         load_pressure(os.path.join(directory_path, filename), conn)
                     else:
                         print("Part ID already exists:", part_id)
@@ -106,8 +106,51 @@ def query_materials(conn):
     except psycopg2.Error as e:
         print("Error querying materials:", e)
 
-def load_pressure(directory_path, conn):
-    print("Loading pressure data from directory:", directory_path)
+def load_pressure(file_path, conn):
+    try:
+        with open(file_path, 'r') as file:
+            lines = file.readlines()
+            # Manually define column names
+            column_names = ["X_Value", "Temp (C)", "Pressure", "Flow SLPM (Filtered)"]
+
+            # Prepare SQL query for inserting data
+            sql_insert = 'INSERT INTO "FilamentQuality"."part_characteristics" ("part_ID", "time_elapsed", "characteristic_name", "characteristic_value") VALUES (%s, %s, %s, %s)'
+
+            with conn.cursor() as cursor:
+                # Find the second occurrence of the header delimiter
+                header_count = 0
+                data_start_index = None
+                for i, line in enumerate(lines):
+                    if line.strip() == '***End_of_Header***':
+                        header_count += 1
+                        if header_count == 2:
+                            data_start_index = i + 2  # Start reading data from the line after the second header
+                            break
+
+                if data_start_index is None:
+                    print("Error: Second '***End_of_Header***' not found in the file.")
+                    return
+
+                # Get part ID from file name
+                part_id = os.path.splitext(os.path.basename(file_path))[0]
+
+                # Iterate over data lines and insert into the database
+                for line in lines[data_start_index:]:
+                    values = line.strip().split('\t')
+                    time_elapsed = values[0]
+                    characteristics_values = values[1:]
+
+                    # Iterate over characteristics and insert into the database
+                    for i, characteristic_value in enumerate(characteristics_values):
+                        if i < len(column_names):  # Ensure we have a corresponding column name
+                            cursor.execute(sql_insert, (part_id, time_elapsed, column_names[i], characteristic_value))
+                            print("Inserted row:", (part_id, time_elapsed, column_names[i], characteristic_value))
+                        else:
+                            print("Not enough column names defined for inserting data.")
+                conn.commit()
+        print("Pressure data loaded successfully into 'FilamentQuality.part_characteristics'.")
+    except Exception as e:
+        print("Error loading pressure data:", e)
 
 def query_parts(conn):
     try:
