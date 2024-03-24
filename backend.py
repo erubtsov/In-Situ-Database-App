@@ -138,15 +138,19 @@ def load_pressure(file_path, conn):
                 for line in lines[data_start_index:]:
                     values = line.strip().split('\t')
                     time_elapsed = values[0]
-                    characteristics_values = values[1:]
+                    pressure = values[2]  # Parse the third column as pressure
+                    characteristics_values = values[1:]  # Exclude the time column
+
+                    # Ensure the number of values matches the number of column names
+                    if len(characteristics_values) != len(column_names) - 1:
+                        print("Error: Number of values does not match the number of columns.")
+                        continue
 
                     # Iterate over characteristics and insert into the database
                     for i, characteristic_value in enumerate(characteristics_values):
-                        if i < len(column_names):  # Ensure we have a corresponding column name
-                            cursor.execute(sql_insert, (part_id, time_elapsed, column_names[i], characteristic_value))
-                            print("Inserted row:", (part_id, time_elapsed, column_names[i], characteristic_value))
-                        else:
-                            print("Not enough column names defined for inserting data.")
+                        cursor.execute(sql_insert, (part_id, time_elapsed, column_names[i+1], characteristic_value))
+                        print("Inserted row:", (part_id, time_elapsed, column_names[i+1], characteristic_value))
+
                 conn.commit()
         print("Pressure data loaded successfully into 'FilamentQuality.part_characteristics'.")
     except Exception as e:
