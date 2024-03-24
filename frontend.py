@@ -4,6 +4,7 @@ from kivy.uix.button import Button
 from kivy.uix.label import Label
 from kivy.uix.textinput import TextInput
 from kivy.uix.boxlayout import BoxLayout
+from kivy.uix.gridlayout import GridLayout
 import socket
 import json
 
@@ -38,6 +39,32 @@ class PasswordPopup(Popup):
             self.callback(password)
             self.dismiss()
 
+class ErrorPopup(Popup):
+    def __init__(self, error_message, on_retry, retry_callback, **kwargs):
+        super(ErrorPopup, self).__init__(**kwargs)
+        self.title = "Error"
+        self.size_hint = (0.6, 0.4)
+        self.on_retry = on_retry  # Callback function for retrying password
+        self.retry_callback = retry_callback  # Callback function to send retry signal to backend
+
+        # Create a box layout for the content
+        layout = BoxLayout(orientation='vertical', padding=10)
+
+        # Add a label to display the error message
+        label = Label(text=error_message)
+        layout.add_widget(label)
+
+        # Add a button to allow retrying password
+        retry_button = Button(text="Retry")
+        retry_button.bind(on_press=self.retry_password)  # Bind directly to the function
+        layout.add_widget(retry_button)
+
+        self.content = layout
+
+    def retry_password(self, instance):
+        self.on_retry()  # Call the retry function
+        self.retry_callback()  # Send the retry signal to the backend
+        self.dismiss()  # Dismiss the popup
 
 class DirectorySelectPopup(Popup):
     def __init__(self, callback, purpose, **kwargs):
@@ -86,33 +113,37 @@ class DirectorySelectPopup(Popup):
         self.callback(directory_path, self.purpose)
         self.dismiss()
 
+class QueryResultPopup(Popup):
+    def __init__(self, query_result, **kwargs):
+        super(QueryResultPopup, self).__init__(**kwargs)
+        self.title = "Query Result"
+        self.size_hint = (0.8, 0.8)
 
-class ErrorPopup(Popup):
-    def __init__(self, error_message, on_retry, retry_callback, **kwargs):
-        super(ErrorPopup, self).__init__(**kwargs)
-        self.title = "Error"
-        self.size_hint = (0.6, 0.4)
-        self.on_retry = on_retry  # Callback function for retrying password
-        self.retry_callback = retry_callback  # Callback function to send retry signal to backend
+        # Create a GridLayout for the content
+        layout = GridLayout(cols=1, padding=10)
 
-        # Create a box layout for the content
-        layout = BoxLayout(orientation='vertical', padding=10)
-
-        # Add a label to display the error message
-        label = Label(text=error_message)
-        layout.add_widget(label)
-
-        # Add a button to allow retrying password
-        retry_button = Button(text="Retry")
-        retry_button.bind(on_press=self.retry_password)  # Bind directly to the function
-        layout.add_widget(retry_button)
+        # Add labels to display the query results
+        for result in query_result:
+            label = Label(text=result)
+            layout.add_widget(label)
 
         self.content = layout
 
-    def retry_password(self, instance):
-        self.on_retry()  # Call the retry function
-        self.retry_callback()  # Send the retry signal to the backend
-        self.dismiss()  # Dismiss the popup
+class ViewUploadDetailsPopup(Popup):
+    def __init__(self, **kwargs):
+        super(ViewUploadDetailsPopup, self).__init__(**kwargs)
+        self.title = "Upload Details"
+        self.size_hint = (0.8, 0.8)
+
+        layout = BoxLayout(orientation='vertical', padding=10)
+        label = Label(text="Upload Details Placeholder")  # You can replace this with actual details
+        layout.add_widget(label)
+
+        close_button = Button(text="Close")
+        close_button.bind(on_press=self.dismiss)
+        layout.add_widget(close_button)
+
+        self.content = layout
 
 
 class PostgreSQLApp(App):
@@ -134,6 +165,16 @@ class PostgreSQLApp(App):
     def select_directory_callback(self, directory_path, purpose):
         self.selected_directories[purpose] = directory_path
         print(f"Selected {purpose} directory:", directory_path)
+
+    def query_database(self, instance):
+        # Placeholder for querying the database
+        query_result = ["Result 1", "Result 2", "Result 3"]  # Example query result
+        popup = QueryResultPopup(query_result=query_result)
+        popup.open()
+
+    def view_upload_details(self, instance):
+        popup = ViewUploadDetailsPopup()
+        popup.open()
 
     def upload_data(self):
         if self.backend_socket is None:  # Check if the backend socket is not connected
@@ -203,10 +244,25 @@ class PostgreSQLApp(App):
             select_button.bind(on_press=lambda instance, purpose=purpose: self.open_directory_selector(purpose))
             self.layout.add_widget(select_button)
 
-        # Upload Button
+        # Add a horizontal layout for query, view details, and upload buttons
+        buttons_layout = BoxLayout(orientation='horizontal')
+
+        # Add Query Database Button
+        query_button = Button(text="Query Database")
+        query_button.bind(on_press=self.query_database)
+        buttons_layout.add_widget(query_button)
+
+        # Add View Upload Details Button
+        view_details_button = Button(text="View Upload Details")
+        view_details_button.bind(on_press=self.view_upload_details)
+        buttons_layout.add_widget(view_details_button)
+
+        # Add Upload Data Button
         upload_button = Button(text="Upload Data")
         upload_button.bind(on_press=lambda instance: self.upload_data())
-        self.layout.add_widget(upload_button)
+        buttons_layout.add_widget(upload_button)
+
+        self.layout.add_widget(buttons_layout)
 
     def show_password_error(self):
         def retry_password():
