@@ -5,6 +5,7 @@ from kivy.uix.label import Label
 from kivy.uix.textinput import TextInput
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.gridlayout import GridLayout
+from kivy.uix.dropdown import DropDown
 import socket
 import json
 
@@ -120,12 +121,22 @@ class QueryResultPopup(Popup):
         self.size_hint = (0.8, 0.8)
 
         # Create a GridLayout for the content
-        layout = GridLayout(cols=1, padding=10)
+        layout = BoxLayout(orientation='vertical', padding=10)
 
-        # Add labels to display the query results
+        # Create a dropdown menu for query results
+        dropdown = DropDown()
+
         for result in query_result:
-            label = Label(text=result)
-            layout.add_widget(label)
+            btn = Button(text=result, size_hint_y=None, height=44)
+            btn.bind(on_release=lambda btn: dropdown.select(btn.text))
+            dropdown.add_widget(btn)
+
+        # Create a button to trigger the dropdown
+        dropdown_button = Button(text='Query Results', size_hint=(None, None))
+        dropdown_button.bind(on_release=dropdown.open)
+        layout.add_widget(dropdown_button)
+
+        dropdown.bind(on_select=lambda instance, x: setattr(dropdown_button, 'text', x))
 
         self.content = layout
 
@@ -167,30 +178,39 @@ class PostgreSQLApp(App):
         print(f"Selected {purpose} directory:", directory_path)
 
     def query_database(self, instance):
-        # Placeholder for querying the database
-        query_result = ["Result 1", "Result 2", "Result 3"]  # Example query result
-        popup = QueryResultPopup(query_result=query_result)
-        popup.open()
+        if self.backend_socket is None:  # Check if the backend socket is not connected
+            self.connect_to_backend()
+
+        data = {
+            "command": "QueryDatabase"
+        }
+        self.backend_socket.send(json.dumps(data).encode())
+
+        query_result = self.backend_socket.recv(1024).decode()
+
+        try:
+            part_ids = json.loads(query_result)
+            popup = QueryResultPopup(query_result=part_ids)
+            popup.open()
+        except json.JSONDecodeError as e:
+            print("Error decoding JSON:", e)
 
     def view_upload_details(self, instance):
         popup = ViewUploadDetailsPopup()
         popup.open()
-
+    
     def upload_data(self):
         if self.backend_socket is None:  # Check if the backend socket is not connected
             self.connect_to_backend()
 
-        # Check if at least one directory is selected
         if any(self.selected_directories.values()):
             print("Uploading Data...")
-            # Prepare data to send to the backend
             data = {
                 "selected_directories": self.selected_directories,
                 "password": self.password,
-                "signal": "DataUpload"  # Add the signal here
+                "signal": "DataUpload" 
             }
-            print("Data to be sent to backend:", data)  # Add this line for debugging
-            # Send data to the backend
+            print("Data to be sent to backend:", data) 
             self.backend_socket.send(json.dumps(data).encode())
             print("Data uploaded successfully.")
         else:
@@ -220,12 +240,9 @@ class PostgreSQLApp(App):
 
     def verify_password(self, password):
         self.password = password
-        # Check if the backend socket is not connected
         if self.backend_socket is None:
-            # If not connected, establish the connection
             self.connect_to_backend()
 
-        # Send the password to the backend for verification
         data = {"password": self.password}
         self.backend_socket.send(json.dumps(data).encode())
         response = self.backend_socket.recv(1024).decode()
@@ -235,29 +252,23 @@ class PostgreSQLApp(App):
             self.show_password_error()
 
     def show_buttons(self):
-        # Clear existing widgets
         self.layout.clear_widgets()
 
-        # Add directory selection buttons
         for purpose in self.selected_directories.keys():
             select_button = Button(text=f"Select {purpose} Directory")
             select_button.bind(on_press=lambda instance, purpose=purpose: self.open_directory_selector(purpose))
             self.layout.add_widget(select_button)
 
-        # Add a horizontal layout for query, view details, and upload buttons
         buttons_layout = BoxLayout(orientation='horizontal')
 
-        # Add Query Database Button
         query_button = Button(text="Query Database")
         query_button.bind(on_press=self.query_database)
         buttons_layout.add_widget(query_button)
 
-        # Add View Upload Details Button
         view_details_button = Button(text="View Upload Details")
         view_details_button.bind(on_press=self.view_upload_details)
         buttons_layout.add_widget(view_details_button)
 
-        # Add Upload Data Button
         upload_button = Button(text="Upload Data")
         upload_button.bind(on_press=lambda instance: self.upload_data())
         buttons_layout.add_widget(upload_button)
@@ -269,7 +280,7 @@ class PostgreSQLApp(App):
             self.open_password_popup()
 
         def retry_callback():
-            if self.backend_socket is None:  # Check if the backend socket is not connected
+            if self.backend_socket is None:  
                 self.connect_to_backend()
             data = {"retry": "RetryPassword"}
             self.backend_socket.send(json.dumps(data).encode())
@@ -277,14 +288,13 @@ class PostgreSQLApp(App):
         error_popup = ErrorPopup(
             error_message="Incorrect password. Please try again.",
             on_retry=retry_password,
-            retry_callback=retry_callback  # Pass the retry callback
+            retry_callback=retry_callback  
         )
         error_popup.open()
 
     def on_stop(self):
         if self.backend_socket is not None:
-            self.backend_socket.close()  # Close the backend socket when the application is stopped
+            self.backend_socket.close()  
 
 if __name__ == '__main__':
     PostgreSQLApp().run()
-
