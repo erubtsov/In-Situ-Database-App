@@ -156,11 +156,38 @@ def load_pressure(file_path, conn):
     except Exception as e:
         print("Error loading pressure data:", e)
 
+def query_database_by_part_id(part_id, conn, client_socket):
+    try:
+        with conn.cursor() as cursor:
+            print("Querying database for part ID:", part_id)
+            # Example SQL query to retrieve data based on part ID
+            sql_query = 'SELECT * FROM "FilamentQuality"."parts" WHERE lower("part_ID") = %s'
+            cursor.execute(sql_query, (part_id.lower(),))  # Compare with lowercase part_id
+            result = cursor.fetchall()
+            print("Query result:", result)
+            
+            # Check if any result is returned
+            if not result:
+                print("Part ID not found in the database.")
+                client_socket.send("Part ID not found".encode())
+            else:
+                # Print the part IDs
+                part_ids = [row[0] for row in result]
+                print("Part IDs:", part_ids)
+
+                # Convert the result to JSON format
+                result_json = json.dumps(result)
+                # Send the result back to the client
+                client_socket.send(result_json.encode())  # Send the query result to the client
+    except psycopg2.Error as e:
+        print("Error querying database by part ID:", e)
+        # Inform the client about the error
+        client_socket.send("Error querying database".encode())
+
 def query_parts(conn):
     try:
         with conn.cursor() as cursor:
             print("Querying parts table...")
-            #sql_query = 'SELECT "parts"."part_ID" FROM "FilamentQuality"."parts"'
             sql_query = 'SELECT * FROM "FilamentQuality"."parts"'
             print("Executing SQL:", sql_query)
             cursor.execute(sql_query)
@@ -168,11 +195,13 @@ def query_parts(conn):
             print("Parts successfully loaded:")
             if not parts:
                 print("No parts found in the database")
+                return []  # Return an empty list if no parts found
             else:
-                for part in parts:
-                    print(part[0])
+                part_ids = [part[0] for part in parts]  # Extracting only the part IDs
+                return part_ids  # Return the list of part IDs
     except psycopg2.Error as e:
         print("Error querying parts:", e)
+        return None  # Return None in case of error
 
 def handle_client(client_socket, conn):
     global directories
@@ -188,15 +217,20 @@ def handle_client(client_socket, conn):
     if conn:
         client_socket.send("Correct".encode())
         print("Waiting for signal...")
-        # Receive signal
-        signal_data = client_socket.recv(1024).decode()
-        signal = json.loads(signal_data).get('signal', '')
-        if signal == "DataUpload":
-            # Receive selected directories
-            selected_directories_data = client_socket.recv(1024).decode()
-            selected_directories = json.loads(selected_directories_data).get('selected_directories', {})
+        # Receive data from the client
+        data = client_socket.recv(1024).decode()
+        data_json = json.loads(data)
+        
+        # Extract command from the received data
+        command = data_json.get('command', '')
+
+        if command == "DataUpload":
+            # Process data upload
+            selected_directories = data_json.get('selected_directories', {})
             print("Selected directories received:", selected_directories)
+            # Process selected directories
             for purpose, directory_path in selected_directories.items():
+                # Process directories based on purpose
                 if purpose == "Characteristics":
                     if isinstance(directory_path, dict):
                         for sub_purpose, sub_directory_path in directory_path.items():
@@ -207,7 +241,6 @@ def handle_client(client_socket, conn):
                         if "pressure" in directory_path.lower():
                             directories["Parts Quality"]["pressure"] = directory_path
                             load_parts_id(directory_path, conn)
-
                 elif purpose == "BenchTop Filament Diameter":
                     if isinstance(directory_path, str):
                         directories["BenchTop Filament Diameter"] = directory_path
@@ -216,8 +249,14 @@ def handle_client(client_socket, conn):
             print("Selected directories:", directories)
             query_parts(conn)
             query_materials(conn)  # Call query_materials function here
+
+        elif command == "QueryDatabase":
+            # Process database query
+            part_ids = query_parts(conn)
+            # Send the list of part IDs back to the client
+            client_socket.send(json.dumps(part_ids).encode())  # Send the list of part IDs to the client
         else:
-            print("Invalid signal received.")
+            print("Invalid command received.")
     else:
         client_socket.send("Incorrect".encode())
         # Receive retry signal
