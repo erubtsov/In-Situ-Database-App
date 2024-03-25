@@ -1,11 +1,10 @@
 import socket
 import json
-from frontend_components import QueryResultPopup
 
 class BackendCommunication:
-    def __init__(self):
+    def __init__(self, query_result_popup_callback):
         self.backend_socket = None
-        self.password = None
+        self.query_result_popup_callback = query_result_popup_callback
         print("BackendCommunication initialized")
 
     def connect_to_backend(self):
@@ -23,11 +22,10 @@ class BackendCommunication:
             if self.backend_socket is None:
                 self.connect_to_backend()
 
-            data = {"password": password}
+            data = {"command": "VerifyPassword", "password": password}
             self.backend_socket.send(json.dumps(data).encode())
             response = self.backend_socket.recv(1024).decode()
             if response == "Correct":
-                self.password = password
                 return True
             else:
                 return False
@@ -35,25 +33,23 @@ class BackendCommunication:
             print("Error verifying password:", e)
             return False
 
-    def upload_data(self, selected_directories, password):
+    def upload_data(self, selected_directories):
         try:
             if self.backend_socket is None:
                 self.connect_to_backend()
 
-            if self.verify_password(password):  # Verify password before uploading data
-                if any(selected_directories.values()):
-                    print("Uploading Data...")
-                    data = {
-                        "selected_directories": selected_directories,
-                        "command": "DataUpload"
-                    }
-                    print("Data to be sent to backend:", data)
-                    self.backend_socket.send(json.dumps(data).encode())
-                    print("Data uploaded successfully.")
-                else:
-                    print("Please select at least one directory before uploading data.")
-            else:
-                print("Password verification failed. Please submit the correct password.")
+            data = {
+                "command": "DataUpload",
+                "selected_directories": selected_directories
+            }
+            self.backend_socket.send(json.dumps(data).encode())
+            print("Data upload request sent to the backend.")
+
+            # Receive confirmation from the server
+            response = self.backend_socket.recv(1024).decode()
+            if response == "DataUploaded":
+                print("Data uploaded successfully.")
+                # Optionally, you can trigger an event/callback to enable the upload button
         except Exception as e:
             print("Error uploading data:", e)
 
@@ -75,8 +71,7 @@ class BackendCommunication:
             try:
                 part_ids = json.loads(query_result)
                 print("Received query result from backend:", part_ids)
-                popup = QueryResultPopup(query_result=part_ids)
-                popup.open()
+                self.query_result_popup_callback(query_result=part_ids)
             except json.JSONDecodeError as e:
                 print("Error decoding JSON:", e)
         except Exception as e:
