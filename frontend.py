@@ -208,7 +208,7 @@ class PostgreSQLApp(App):
             data = {
                 "selected_directories": self.selected_directories,
                 "password": self.password,
-                "signal": "DataUpload" 
+                "command": "DataUpload" 
             }
             print("Data to be sent to backend:", data) 
             self.backend_socket.send(json.dumps(data).encode())
