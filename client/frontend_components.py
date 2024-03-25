@@ -3,22 +3,84 @@ from kivy.uix.button import Button
 from kivy.uix.label import Label
 from kivy.uix.textinput import TextInput
 from kivy.uix.boxlayout import BoxLayout
+from kivy.uix.filechooser import FileChooserIconView
 from kivy.uix.dropdown import DropDown
-import json
+from kivy.utils import platform
+import tkinter as tk
+from tkinter import filedialog
+from kivy.properties import BooleanProperty
+
 
 class ButtonDisplay(BoxLayout):
-    def __init__(self, button_texts, button_callbacks, backend_callback, **kwargs):
+    def __init__(self, button_texts, button_callbacks, backend_callback, purposes=None, **kwargs):
         super(ButtonDisplay, self).__init__(**kwargs)
         self.orientation = 'vertical'
         self.backend_callback = backend_callback
+        self.buttons = {}  # Dictionary to store buttons
 
-        for text, callback in zip(button_texts, button_callbacks):
+        for text, callback, purpose in zip(button_texts, button_callbacks, purposes):
             button = Button(text=text)
-            button.bind(on_press=lambda instance, cmd=text: self.send_command(cmd))
+            button.bind(on_press=lambda instance, cmd=text: self.send_command(cmd, purpose))
+            self.buttons[text] = button  # Store the button in the dictionary
             self.add_widget(button)
 
-    def send_command(self, command):
-        self.backend_callback()  # Remove the argument here
+    def send_command(self, command, purpose):
+        if purpose is not None:
+            self.backend_callback() 
+
+    def update_button_text(self, button_text, directory_path, purpose):
+        button = self.buttons.get(button_text)  # Retrieve the button instance from the dictionary
+        if button:
+            if directory_path:  # If a directory path is selected
+                button.text = f"Selected Path: {directory_path}"  # Update button text to display selected path
+            else:  # If no directory path is selected
+                button.text = f"Select {purpose} Directory"  # Update button text to prompt user to select directory
+                    
+class DirectorySelectPopup(Popup):
+    def __init__(self, callback, purpose, **kwargs):
+        super(DirectorySelectPopup, self).__init__(**kwargs)
+        self.callback = callback
+        self.purpose = purpose
+        self.title = "Select Directory"
+        self.size_hint = (0.8, 0.8)
+
+        # Create a box layout for the content
+        layout = BoxLayout(orientation='vertical', padding=10)
+
+        # Add a label
+        label = Label(text="Select a directory:")
+        layout.add_widget(label)
+
+        # Add a text input for directory path
+        self.text_input = TextInput(text="", multiline=False)
+        layout.add_widget(self.text_input)
+
+        # Add a button to open the directory selector
+        browse_button = Button(text="Browse")
+        browse_button.bind(on_press=self.select_directory)
+        layout.add_widget(browse_button)
+
+        # Add a button to select the directory and close the popup
+        select_button = Button(text="Select")
+        select_button.bind(on_press=self.select_and_close)
+        layout.add_widget(select_button)
+
+        self.content = layout
+
+    def select_directory(self, instance):
+        root = tk.Tk()
+        root.withdraw()  # Hide the main window
+
+        directory_path = filedialog.askdirectory()
+        if directory_path:
+            self.text_input.text = directory_path
+
+    def select_and_close(self, instance):
+        directory_path = self.text_input.text
+        if directory_path:
+            data = {"purpose": self.purpose, "directory_path": directory_path}
+            self.callback(data)  # Send data to the callback
+            self.dismiss()  # Close the popup after selection
 
 class ViewUploadDetailsPopup(Popup):
     def __init__(self, **kwargs):
@@ -27,7 +89,7 @@ class ViewUploadDetailsPopup(Popup):
         self.size_hint = (0.8, 0.8)
 
         layout = BoxLayout(orientation='vertical', padding=10)
-        label = Label(text="Upload Details Placeholder")  # You can replace this with actual details
+        label = Label(text="Upload Details Placeholder")  # Placeholder text
         layout.add_widget(label)
 
         close_button = Button(text="Close")
@@ -35,6 +97,7 @@ class ViewUploadDetailsPopup(Popup):
         layout.add_widget(close_button)
 
         self.content = layout
+
 
 class PasswordPopup(Popup):
     def __init__(self, callback, **kwargs):
@@ -91,37 +154,6 @@ class ErrorPopup(Popup):
     def retry_password(self, instance):
         self.on_retry()  # Call the retry function
         self.dismiss()  # Dismiss the error popup
-
-class DirectorySelectPopup(Popup):
-    def __init__(self, callback, purpose, **kwargs):
-        super(DirectorySelectPopup, self).__init__(**kwargs)
-        self.callback = callback
-        self.purpose = purpose
-        self.title = "Select Directory"
-        self.size_hint = (0.8, 0.8)
-
-        # Create a box layout for the content
-        layout = BoxLayout(orientation='vertical', padding=10)
-
-        # Add a label
-        label = Label(text="Select a directory:")
-        layout.add_widget(label)
-
-        # Add a text input for directory path
-        self.text_input = TextInput(text="", multiline=False)
-        layout.add_widget(self.text_input)
-
-        # Add a button to select the directory and close the popup
-        select_button = Button(text="Select")
-        select_button.bind(on_press=self.select_and_close)
-        layout.add_widget(select_button)
-
-        self.content = layout
-
-    def select_and_close(self, instance):
-        directory_path = self.text_input.text
-        self.callback(directory_path, self.purpose)
-        self.dismiss()
 
 class QueryResultPopup(Popup):
     def __init__(self, query_result, **kwargs):
