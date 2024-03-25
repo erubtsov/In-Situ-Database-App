@@ -1,13 +1,14 @@
 import socket
 import json
-from threading import Thread
+from threading import Thread, Lock
 from database_operations import connect_to_database, load_parts_id, query_parts, query_materials
+
+upload_lock = Lock()  # Lock for thread safety
 
 def handle_client(client_socket, conn):
     print("Client connected.")
 
     authenticated = False
-    selected_directories = None
 
     while True:
         if not authenticated:
@@ -51,24 +52,18 @@ def handle_client(client_socket, conn):
 
             if command == "DataUpload":
                 print("Received command: DataUpload")
+                selected_directories = data_json.get('selected_directories', None)
                 if selected_directories:
                     # Handle data upload command with selected directories
-                    print("Uploading Data...")
-                    # Process the upload with selected_directories
-                    print("Data uploaded successfully.")
-                    selected_directories = None  # Reset selected directories after upload
+                    upload_thread = Thread(target=upload_data, args=(client_socket, selected_directories))
+                    upload_thread.start()
                 else:
-                    print("Please select directories before uploading data.")
+                    print("No directories selected for upload.")
 
             elif command == "QueryDatabase":
                 print("Received command: QueryDatabase")
-                # Handle query database command in a separate thread
-                query_thread = Thread(target=query_database, args=(client_socket,))
-                query_thread.start()
-
-            elif command == "SelectedDirectories":
-                print("Received selected directories:", data_json.get('directories', ''))
-                selected_directories = data_json.get('directories', '')
+                # Handle query database command in the current thread
+                query_database(client_socket, conn)  # Pass the connection object
 
             elif command == "TerminateConnection":
                 print("Received termination signal. Terminating connection.")
@@ -81,12 +76,20 @@ def handle_client(client_socket, conn):
     print("Closing client connection.")
     client_socket.close()
 
-
-def query_database(client_socket):
+def query_database(client_socket, conn):
     # Query database logic
     # Example: sending query result to client
-    query_result = ['result1', 'result2', 'result3']  # Placeholder result
+    query_result = query_parts(conn)  # Pass the connection object
     client_socket.send(json.dumps(query_result).encode())
+
+def upload_data(client_socket, selected_directories):
+    with upload_lock:
+        # Upload data logic
+        print("Uploading Data...")
+        # Process the upload with selected_directories
+        print("Data uploaded successfully.")
+    # Send confirmation to the client after the upload operation completes
+    client_socket.send("DataUploaded".encode())
 
 def main():
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
