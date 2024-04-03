@@ -41,51 +41,58 @@ def insert_material(conn, material_id):
     except psycopg2.Error as e:
         print("Error inserting material ID:", e)
 
-def load_parts_id(directory_path, conn):
+def load_parts_id(directory_path, conn, purpose):
     try:
         if not isinstance(directory_path, str) or not directory_path:
             print("Invalid directory path. Skipping processing.")
             return
 
         with conn.cursor() as cursor:
-            print("Loading part IDs from directory:", directory_path)
+            print(f"Processing directory '{directory_path}' for purpose '{purpose}'")
+
             for filename in os.listdir(directory_path):
-                if filename.endswith((".tdms", ".CSV")):
+                if filename.endswith((".tdms", ".csv")):
                     part_id = os.path.splitext(filename)[0]
                     split_id = part_id.split('_')
-                    material_id = '_'.join(split_id[:2]).lower()  # Convert material_id to lowercase
-                    part_type = split_id[2]
-                    print("Extracted part ID:", part_id)
-                    print("Extracted material ID:", material_id)
-                    print("Extracted part type:", part_type)
-                    
-                    # Check if material exists in the materials table (case-insensitive comparison)
-                    cursor.execute('SELECT EXISTS(SELECT 1 FROM "FilamentQuality"."materials" WHERE lower("material_id") = %s)', (material_id,))
-                    material_exists = cursor.fetchone()[0]
-                    
-                    if not material_exists:
-                        insert_material(conn, material_id)  # Call check_and_insert_material to check and insert material
+                    material_id = '_'.join(split_id[:2]).lower()
+                    if purpose in ["XRD", "FTIR", "TGA"]:
+                        print(f"Inserting only material ID '{material_id}' for 'Characteristic' purpose")
+                        insert_material(conn, material_id)
                     else:
-                        print("Material ID already exists in the 'materials' table:", material_id)
-                        
-                    sql_query = 'SELECT "part_ID" FROM "FilamentQuality"."parts" WHERE lower("part_ID") = %s'
-                    cursor.execute(sql_query, (part_id.lower(),))  # Compare with lowercase part_id
-                    existing_part = cursor.fetchone()
-                    if not existing_part:
-                        sql_insert = 'INSERT INTO "FilamentQuality"."parts" ("part_ID", "material_ID", "part_type") VALUES (%s, %s, %s)'
-                        print("Executing SQL:", sql_insert)
-                        cursor.execute(sql_insert, (part_id, material_id, part_type))
-                        conn.commit()
-                        print("Part ID inserted successfully:", part_id)
-                        # Call load_pressure after inserting a new part ID, passing the file path
-                        load_pressure(os.path.join(directory_path, filename), conn)
-                    else:
-                        print("Part ID already exists:", part_id)
+                        if len(split_id) > 2:
+                            part_type = split_id[2]
+                            print(f"Extracted part ID: {part_id}, material ID: {material_id}, part type: {part_type}")
+                            
+                            # Check if material exists and insert if not
+                            cursor.execute('SELECT EXISTS(SELECT 1 FROM "FilamentQuality"."materials" WHERE lower("material_id") = %s)', (material_id,))
+                            if not cursor.fetchone()[0]:
+                                insert_material(conn, material_id)
+
+                            # Insert part_id and related information
+                            cursor.execute('SELECT EXISTS(SELECT 1 FROM "FilamentQuality"."parts" WHERE lower("part_ID") = %s)', (part_id.lower(),))
+                            if not cursor.fetchone()[0]:
+                                sql_insert = 'INSERT INTO "FilamentQuality"."parts" ("part_ID", "material_ID", "part_type") VALUES (%s, %s, %s)'
+                                cursor.execute(sql_insert, (part_id, material_id, part_type))
+                                conn.commit()
+                                print("Part ID inserted successfully:", part_id)
+
+                                # Call additional processing based on purpose
+                                if purpose == "Parts Quality":
+                                    load_pressure(os.path.join(directory_path, filename), conn)
+                                elif purpose == "BenchTop Filament Diameter":
+                                    print("in purpose if statement")
+                                    load_diameter(os.path.join(directory_path, filename), conn)
+                                    continue
+                                # Add other purpose-specific processing as needed
+                        else:
+                            print(f"Invalid file naming for non-Characteristic purpose, missing part type: {filename}")
     except psycopg2.Error as e:
         conn.rollback()  # Rollback transaction in case of error
         print("Error loading part IDs:", e)
     finally:
-        conn.commit()  # Commit transaction at the end
+        conn.commit()  # Ensure the transaction commits at the end
+
+
 
 def query_materials(conn):
     try:
@@ -153,6 +160,41 @@ def load_pressure(file_path, conn):
         print("Pressure data loaded successfully into 'FilamentQuality.part_characteristics'.")
     except Exception as e:
         print("Error loading pressure data:", e)
+
+import csv
+
+def load_diameter(file_path, conn):
+    try:
+        # Open the file using the csv module, which can handle various types of delimited files
+        with open(file_path, 'r') as csvfile:
+            # Trying to detect the delimiter
+            dialect = csv.Sniffer().sniff(csvfile.read(1024))
+            csvfile.seek(0)  # Reset file pointer after sniffing
+            reader = csv.reader(csvfile, dialect)
+
+            # Extract the header
+            column_names = next(reader)
+            print(f"Column names: {column_names}")
+
+            sql_insert = ('INSERT INTO "FilamentQuality"."BenchTop_Filament_Diameter" '
+                          '("part_ID", "position", "characteristic_name", "characteristic_value") '
+                          'VALUES (%s, %s, %s, %s)')
+
+            with conn.cursor() as cursor:
+                part_id = os.path.splitext(os.path.basename(file_path))[0]
+
+                for values in reader:
+                    # Assuming 'Distance (m)' is the last column
+                    distance_m = values[-1]
+                    for i, value in enumerate(values[:-1]):  # Skip the last column which is 'Distance (m)'
+                        cursor.execute(sql_insert, (part_id, distance_m, column_names[i], value))
+                        print(f"Inserted {column_names[i]} at {distance_m}m: {value}")
+
+                conn.commit()
+            print("Diameter data loaded successfully.")
+    except Exception as e:
+        conn.rollback()
+        print(f"Error loading diameter data: {e}")
 
 def query_database_by_part_id(part_id, conn, client_socket):
     try:
