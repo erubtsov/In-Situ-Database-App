@@ -42,11 +42,13 @@ class BackendCommunication:
                 "command": "DataUpload",
                 "selected_directories": selected_directories
             }
+            print("Sending data upload request to the backend:", data)  # Debug print
             self.backend_socket.send(json.dumps(data).encode())
             print("Data upload request sent to the backend.")
 
             # Receive confirmation from the server
             response = self.backend_socket.recv(1024).decode()
+            print("Received response from the server:", response)  # Debug print
             if response == "DataUploaded":
                 print("Data uploaded successfully.")
                 # Optionally, you can trigger an event/callback to enable the upload button
