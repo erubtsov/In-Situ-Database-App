@@ -1,6 +1,7 @@
 import psycopg2
 import os
 import json
+import csv
 
 directories = {
     "Characteristics": {
