@@ -44,18 +44,33 @@ class PostgreSQLApp(App):
         else:
             print("Incorrect password. Please try again.")
             self.show_password_error()
-    
+
+    def reset_selected_directories(self):
+        for key in self.selected_directories.keys():
+            self.selected_directories[key] = ""
+
     def upload_data(self):
-        if any(self.selected_directories.values()):
-            if not self.uploading_data:  # Check if data is not currently being uploaded
-                self.uploading_data = True  # Set uploading flag
-                self.backend_communication.upload_data(self.selected_directories)  # Pass selected directories only
-                # Optionally, you can trigger an event/callback to enable the upload button
-            else:
-                print("Data upload in progress. Please wait.")
-        else:
+        if not any(self.selected_directories.values()):
+            # If no directories have been selected, notify the user.
             print("Please select at least one directory before uploading data.")
-    
+            return  # Exit the function early.
+
+        if self.uploading_data:
+            # If an upload is already in progress, notify the user and don't start another.
+            print("Data upload in progress. Please wait.")
+            return
+
+        # Set uploading flag to True to prevent another upload from starting.
+        self.uploading_data = True
+
+        # Perform the upload operation.
+        try:
+            self.backend_communication.upload_data(self.selected_directories)
+        finally:
+            # Reset the uploading flag and selected directories after the operation, regardless of success.
+            self.uploading_data = False
+            self.reset_selected_directories()
+        
     def view_upload_details(self):
         popup = ViewUploadDetailsPopup()
         popup.open()
