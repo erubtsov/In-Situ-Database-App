@@ -1,7 +1,8 @@
 import socket
 import json
 from threading import Thread, Lock
-from database_operations import connect_to_database, load_parts_id, query_parts, query_materials
+import os
+from database_operations import connect_to_database, load_parts_id, query_parts, query_materials, load_pressure
 
 upload_lock = Lock()  # Lock for thread safety
 
@@ -15,7 +16,7 @@ def handle_client(client_socket, conn):
             # Receive password
             password_data = client_socket.recv(1024).decode()
             password = json.loads(password_data).get('password', '')
-            print("Received password:", password)
+            #print("Received password:", password)
 
             # Check if password is correct
             if not conn:
@@ -53,9 +54,10 @@ def handle_client(client_socket, conn):
             if command == "DataUpload":
                 print("Received command: DataUpload")
                 selected_directories = data_json.get('selected_directories', None)
+                print("Selected directories:", selected_directories)  # Debug print
                 if selected_directories:
                     # Handle data upload command with selected directories
-                    upload_thread = Thread(target=upload_data, args=(client_socket, selected_directories))
+                    upload_thread = Thread(target=upload_data, args=(client_socket, selected_directories, conn))  # Pass conn object
                     upload_thread.start()
                 else:
                     print("No directories selected for upload.")
@@ -82,14 +84,39 @@ def query_database(client_socket, conn):
     query_result = query_parts(conn)  # Pass the connection object
     client_socket.send(json.dumps(query_result).encode())
 
-def upload_data(client_socket, selected_directories):
+def upload_data(client_socket, selected_directories, conn):
     with upload_lock:
-        # Upload data logic
-        print("Uploading Data...")
-        # Process the upload with selected_directories
-        print("Data uploaded successfully.")
-    # Send confirmation to the client after the upload operation completes
-    client_socket.send("DataUploaded".encode())
+        print("Starting data upload process...")  # Additional debug statement
+
+        # Check if directories are specified
+        if not selected_directories:
+            print("No directories selected for upload.")
+            client_socket.send("NoDirectoriesSelected".encode())
+            return
+
+        # Debugging: Print the entire selected_directories dictionary
+        print("Received selected_directories for upload:", selected_directories)
+
+        # Iterate over selected directories and their purposes
+        for purpose, directory in selected_directories.items():
+            print(f"Processing purpose: {purpose} with directory: {directory}")  # Debugging statement
+
+            # Check if directory exists
+            if not os.path.isdir(directory):
+                print(f"Directory '{directory}' does not exist for purpose '{purpose}'.")  # Include purpose in message
+                # Optionally inform the client about the non-existent directory
+                client_socket.send(f"DirectoryNotFound:{directory}".encode())
+                continue
+
+            # Call load_parts_id for every directory regardless of the purpose
+            # The purpose is now evaluated within the load_parts_id method
+            print(f"Calling load_parts_id for purpose '{purpose}'.")  # Debugging statement
+            load_parts_id(directory, conn, purpose)
+
+        # Send confirmation to the client after all operations complete
+        client_socket.send("DataUploaded".encode())
+        print("Data upload process completed.")  # Additional debug statement
+
 
 def main():
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
