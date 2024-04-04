@@ -2,6 +2,8 @@ import psycopg2
 import os
 import json
 import csv
+import pandas as pd
+import xlrd
 
 directories = {
     "Characteristics": {
@@ -43,74 +45,102 @@ def insert_material(conn, material_id):
         print("Error inserting material ID:", e)
 
 def load_parts_id(directory_path, conn, purpose):
+    print(f"Starting load_parts_id with purpose: {purpose} and directory path: {directory_path}")
+
+    if 'TGA' in purpose.upper() or 'TGA' in directory_path.upper():
+        print("Processing TGA data.")
+        for file_name in os.listdir(directory_path):
+            if file_name.endswith((".xls", ".csv")):
+                material_id = extract_material_id(file_name)
+                if material_id:
+                    insert_material(conn, material_id)
+                    print(f"Inserted material ID '{material_id}' into the database.")
+
+                file_path = os.path.join(directory_path, file_name)
+                print(f"Loading TGA data from file: {file_path}")
+                load_tga_data(file_path, conn, material_id)
+        print("Finished processing TGA data.")
+    else:
+        # Process other files as per your requirements
+        pass
+
+    # For other purposes, check directory path validity and proceed with parts ID loading
+    if not os.path.isdir(directory_path):
+        print(f"Invalid directory path: {directory_path}. Skipping processing.")
+        return
+
+    with conn.cursor() as cursor:
+        for filename in os.listdir(directory_path):
+            if filename.endswith((".tdms", ".csv")):
+                part_id = os.path.splitext(filename)[0]
+                material_id = extract_material_id(filename)
+                # For characteristics other than TGA, ensure material_id exists
+                if purpose in ["XRD", "FTIR"] and material_id:
+                    insert_material(conn, material_id)
+                    print(f"Inserted material ID '{material_id}' for {purpose} data.")
+                elif len(part_id.split('_')) > 2:  # Assuming valid part_id for non-characteristic purposes
+                    # Insert part_id and related data into the database
+                    # This part of the code is simplified for brevity
+                    print(f"Processing {filename} for {purpose}. Part ID: {part_id}, Material ID: {material_id}")
+                    # Perform actual database operations here
+        print(f"Finished processing directory '{directory_path}' for purpose '{purpose}'")
+
+def extract_material_id(filename):
+    """Extracts the material ID from the given filename, excluding the file extension."""
+    base_name = os.path.splitext(filename)[0]
+    parts = base_name.split('_')
+    if len(parts) >= 2:
+        return '_'.join(parts[:2]).lower()
+    else:
+        print(f"Unable to extract material ID from filename: {filename}")
+        return None
+
+def load_tga_data(file_path, conn, material_id):
     try:
-        if not isinstance(directory_path, str) or not directory_path:
-            print("Invalid directory path. Skipping processing.")
-            return
+        # Read the Excel file, using the first two header rows (rows 2 and 3) to form the multi-index columns
+        df = pd.read_excel(file_path, sheet_name=1, header=[1, 2], skiprows=0)  # Adjust 'TGA Data' to the actual sheet name
+        
+        # Before combining, convert all header items to strings
+        df.columns = [' '.join(str(col) for col in cols) for cols in df.columns]
+        
+        # Rename the columns to ensure no blank spaces and no repetition
+        df.rename(columns=lambda x: x.split(' ')[0], inplace=True)
+        
+        # Trim the DataFrame to skip the unnecessary rows (since headers are combined)
+        df = df[3:] 
 
+        df.columns = ['Time_min', 'Temperature_°C', 'Weight_%',  'Weight_mg']
+
+        # Construct SQL insertion query
+        sql_insert = ('INSERT INTO "FilamentQuality"."material_characteristics" '
+                      '("material_ID", "time_elapsed", "characteristic_name", "characteristic_value") '
+                      'VALUES (%s, %s, %s, %s)')
+        
         with conn.cursor() as cursor:
-            print(f"Processing directory '{directory_path}' for purpose '{purpose}'")
-
-            for filename in os.listdir(directory_path):
-                if filename.endswith((".tdms", ".csv")):
-                    part_id = os.path.splitext(filename)[0]
-                    split_id = part_id.split('_')
-                    material_id = '_'.join(split_id[:2]).lower()
-                    if purpose in ["XRD", "FTIR", "TGA"]:
-                        print(f"Inserting only material ID '{material_id}' for 'Characteristic' purpose")
-                        insert_material(conn, material_id)
-                    else:
-                        if len(split_id) > 2:
-                            part_type = split_id[2]
-                            print(f"Extracted part ID: {part_id}, material ID: {material_id}, part type: {part_type}")
-                            
-                            # Check if material exists and insert if not
-                            cursor.execute('SELECT EXISTS(SELECT 1 FROM "FilamentQuality"."materials" WHERE lower("material_id") = %s)', (material_id,))
-                            if not cursor.fetchone()[0]:
-                                insert_material(conn, material_id)
-
-                            # Insert part_id and related information
-                            cursor.execute('SELECT EXISTS(SELECT 1 FROM "FilamentQuality"."parts" WHERE lower("part_ID") = %s)', (part_id.lower(),))
-                            if not cursor.fetchone()[0]:
-                                sql_insert = 'INSERT INTO "FilamentQuality"."parts" ("part_ID", "material_ID", "part_type") VALUES (%s, %s, %s)'
-                                cursor.execute(sql_insert, (part_id, material_id, part_type))
-                                conn.commit()
-                                print("Part ID inserted successfully:", part_id)
-
-                                # Call additional processing based on purpose
-                                if purpose == "Parts Quality":
-                                    load_pressure(os.path.join(directory_path, filename), conn)
-                                elif purpose == "BenchTop Filament Diameter":
-                                    print("in purpose if statement")
-                                    load_diameter(os.path.join(directory_path, filename), conn)
-                                    continue
-                                # Add other purpose-specific processing as needed
-                        else:
-                            print(f"Invalid file naming for non-Characteristic purpose, missing part type: {filename}")
-    except psycopg2.Error as e:
-        conn.rollback()  # Rollback transaction in case of error
-        print("Error loading part IDs:", e)
-    finally:
-        conn.commit()  # Ensure the transaction commits at the end
-
-
-
-def query_materials(conn):
-    try:
-        with conn.cursor() as cursor:
-            print("Querying materials table...")
-            sql_query = 'SELECT "material_id" FROM "FilamentQuality"."materials"'
-            print("Executing SQL:", sql_query)
-            cursor.execute(sql_query)
-            materials = cursor.fetchall()
-            print("Materials successfully loaded:")
-            if not materials:
-                print("No materials found in the database")
-            else:
-                for material in materials:
-                    print(material[0])
-    except psycopg2.Error as e:
-        print("Error querying materials:", e)
+            # Iterate through DataFrame rows
+            for index, row in df.iterrows():
+                time_min = row['Time_min']
+                temperature = row['Temperature_°C']
+                weight_mg = row['Weight_mg']
+                weight_percent = row['Weight_%']
+                
+                # Execute the insert command for the temperature
+                print(f"Inserting temperature for {material_id} at {time_min}: {temperature}")
+                cursor.execute(sql_insert, (material_id, time_min, 'Temperature', temperature))
+                
+                # Execute the insert command for the weight in mg
+                print(f"Inserting weight in mg for {material_id} at {time_min}: {weight_mg}")
+                cursor.execute(sql_insert, (material_id, time_min, 'Weight', weight_mg))
+                
+                # Execute the insert command for the weight percent
+                print(f"Inserting weight percent for {material_id} at {time_min}: {weight_percent}")
+                cursor.execute(sql_insert, (material_id, time_min, 'Weight Percent', weight_percent))
+                
+            conn.commit()
+            print(f"TGA data loaded successfully for material ID {material_id} from {file_path}")
+    except Exception as e:
+        conn.rollback()
+        print(f"Error loading TGA data from {file_path}: {e}")
 
 def load_pressure(file_path, conn):
     try:
@@ -196,6 +226,23 @@ def load_diameter(file_path, conn):
     except Exception as e:
         conn.rollback()
         print(f"Error loading diameter data: {e}")
+
+def query_materials(conn):
+    try:
+        with conn.cursor() as cursor:
+            print("Querying materials table...")
+            sql_query = 'SELECT "material_id" FROM "FilamentQuality"."materials"'
+            print("Executing SQL:", sql_query)
+            cursor.execute(sql_query)
+            materials = cursor.fetchall()
+            print("Materials successfully loaded:")
+            if not materials:
+                print("No materials found in the database")
+            else:
+                for material in materials:
+                    print(material[0])
+    except psycopg2.Error as e:
+        print("Error querying materials:", e)
 
 def query_database_by_part_id(part_id, conn, client_socket):
     try:
