@@ -44,103 +44,109 @@ def insert_material(conn, material_id):
     except psycopg2.Error as e:
         print("Error inserting material ID:", e)
 
+def extract_part_type(part_id):
+    """Extracts the part type from the given part_id."""
+    parts = part_id.split('_')
+    # In this case, 'cyl' is the third element in the list
+    if len(parts) >= 3:
+        return parts[2].lower()  # Return the part type in lowercase
+    else:
+        print(f"Unable to extract part type from part ID: {part_id}")
+        return None
+
+def insert_part(conn, part_id, material_id):
+    # Extract the part_type using the function defined above
+    part_type = extract_part_type(part_id)
+    if part_type is None:
+        return  # Skip insertion if the part type is not found
+
+    with conn.cursor() as cursor:
+        sql_insert_part = '''
+            INSERT INTO "FilamentQuality"."parts" ("part_ID", "material_ID", "part_type")
+            VALUES (%s, %s, %s)
+            ON CONFLICT ("part_ID") DO NOTHING;
+        '''
+        cursor.execute(sql_insert_part, (part_id, material_id, part_type))
+        conn.commit()
+
+
 def load_parts_id(directory_path, conn, purpose):
     print(f"Starting load_parts_id with purpose: {purpose} and directory path: {directory_path}")
-
-    if 'TGA' in purpose.upper() or 'TGA' in directory_path.upper():
-        print("Processing TGA data.")
-        for file_name in os.listdir(directory_path):
-            if file_name.endswith((".xls", ".csv")):
-                material_id = extract_material_id(file_name)
-                if material_id:
-                    insert_material(conn, material_id)
-                    print(f"Inserted material ID '{material_id}' into the database.")
-
-                file_path = os.path.join(directory_path, file_name)
-                print(f"Loading TGA data from file: {file_path}")
-                load_tga_data(file_path, conn, material_id)
-        print("Finished processing TGA data.")
-    else:
-        # Process other files as per your requirements
-        pass
-
-    # For other purposes, check directory path validity and proceed with parts ID loading
+    
+    # Check directory path validity and proceed with parts ID loading
     if not os.path.isdir(directory_path):
         print(f"Invalid directory path: {directory_path}. Skipping processing.")
         return
 
-    with conn.cursor() as cursor:
-        for filename in os.listdir(directory_path):
-            if filename.endswith((".tdms", ".csv")):
-                part_id = os.path.splitext(filename)[0]
-                material_id = extract_material_id(filename)
-                # For characteristics other than TGA, ensure material_id exists
-                if purpose in ["XRD", "FTIR"] and material_id:
-                    insert_material(conn, material_id)
-                    print(f"Inserted material ID '{material_id}' for {purpose} data.")
-                elif len(part_id.split('_')) > 2:  # Assuming valid part_id for non-characteristic purposes
-                    # Insert part_id and related data into the database
-                    # This part of the code is simplified for brevity
-                    print(f"Processing {filename} for {purpose}. Part ID: {part_id}, Material ID: {material_id}")
-                    # Perform actual database operations here
-        print(f"Finished processing directory '{directory_path}' for purpose '{purpose}'")
+    # Process files in the directory based on the purpose
+    for file_name in os.listdir(directory_path):
+        if file_name.endswith((".xls", ".csv", ".tdms")):
 
-def extract_material_id(filename):
-    """Extracts the material ID from the given filename, excluding the file extension."""
-    base_name = os.path.splitext(filename)[0]
-    parts = base_name.split('_')
-    if len(parts) >= 2:
-        return '_'.join(parts[:2]).lower()
-    else:
-        print(f"Unable to extract material ID from filename: {filename}")
-        return None
+            file_path = os.path.join(directory_path, file_name)
+            part_id = os.path.splitext(file_name)[0]
+            material_id = extract_material_id(file_name)
+            
+            if purpose in ['BenchTop Filament Diameter', 'Parts Quality', 'Live Print Data']:
+                # For non-characteristic purposes, insert the part_id into the "parts" table
+                insert_part(conn, part_id, material_id)
+            if material_id:
+                insert_material(conn, material_id)
+                print(f"Inserted material ID '{material_id}' into the database.")
+            file_path = os.path.join(directory_path, file_name)
+            if purpose == 'Characteristics':
+                if 'TGA' in file_path.upper():
+                    print(f"Loading TGA data from file: {file_path}")
+                    load_thermal_data(file_path, conn, material_id, 'tga')
+                elif 'DSC' in file_path.upper():
+                    print(f"Loading DSC data from file: {file_path}")
+                    load_thermal_data(file_path, conn, material_id, 'dsc')
+            elif purpose == 'BenchTop Filament Diameter':
+                load_diameter(file_path, conn)
+            elif purpose == 'Parts Quality':
+                load_pressure(file_path, conn)
 
-def load_tga_data(file_path, conn, material_id):
+    print(f"Finished processing directory '{directory_path}' for purpose '{purpose}'")
+
+def load_thermal_data(file_path, conn, material_id, data_type):
     try:
-        # Read the Excel file, using the first two header rows (rows 2 and 3) to form the multi-index columns
-        df = pd.read_excel(file_path, sheet_name=1, header=[1, 2], skiprows=0)  # Adjust 'TGA Data' to the actual sheet name
-        
-        # Before combining, convert all header items to strings
-        df.columns = [' '.join(str(col) for col in cols) for cols in df.columns]
-        
-        # Rename the columns to ensure no blank spaces and no repetition
-        df.rename(columns=lambda x: x.split(' ')[0], inplace=True)
-        
-        # Trim the DataFrame to skip the unnecessary rows (since headers are combined)
-        df = df[3:] 
+        # Read the first three rows to get the headers
+        headers = pd.read_excel(file_path, sheet_name=1, nrows=3, header=None)
 
-        df.columns = ['Time_min', 'Temperature_°C', 'Weight_%',  'Weight_mg']
+        # Combine the second and third rows to form the complete headers
+        combined_headers = headers.iloc[1] + ' ' + headers.iloc[2].where(pd.notnull(headers.iloc[2]), '')
 
-        # Construct SQL insertion query
+        # Prefix 'DSC_' to the 'Temperature' header if it's DSC data
+        combined_headers = [f"DSC_{name}" if 'Temperature' in name and data_type.lower() == 'dsc' else name for name in combined_headers]
+
+        # Read the rest of the data using the new headers
+        df = pd.read_excel(file_path, sheet_name=1, skiprows=3)
+        df.columns = combined_headers
+
+        # Prepare SQL query for inserting data
         sql_insert = ('INSERT INTO "FilamentQuality"."material_characteristics" '
                       '("material_ID", "time_elapsed", "characteristic_name", "characteristic_value") '
                       'VALUES (%s, %s, %s, %s)')
-        
+
         with conn.cursor() as cursor:
-            # Iterate through DataFrame rows
+            # Iterate through DataFrame rows and insert data
             for index, row in df.iterrows():
-                time_min = row['Time_min']
-                temperature = row['Temperature_°C']
-                weight_mg = row['Weight_mg']
-                weight_percent = row['Weight_%']
+                # Retrieve time value ensuring the 'Time min' column exists
+                if 'Time min' not in df.columns:
+                    raise ValueError("Column 'Time min' does not exist in the DataFrame.")
+                time_value = row['Time min']
                 
-                # Execute the insert command for the temperature
-                print(f"Inserting temperature for {material_id} at {time_min}: {temperature}")
-                cursor.execute(sql_insert, (material_id, time_min, 'Temperature', temperature))
-                
-                # Execute the insert command for the weight in mg
-                print(f"Inserting weight in mg for {material_id} at {time_min}: {weight_mg}")
-                cursor.execute(sql_insert, (material_id, time_min, 'Weight', weight_mg))
-                
-                # Execute the insert command for the weight percent
-                print(f"Inserting weight percent for {material_id} at {time_min}: {weight_percent}")
-                cursor.execute(sql_insert, (material_id, time_min, 'Weight Percent', weight_percent))
-                
-            conn.commit()
-            print(f"TGA data loaded successfully for material ID {material_id} from {file_path}")
+                # Loop over each characteristic and insert into the database
+                for col in df.columns[df.columns != 'Time min']:  # Skip the 'Time min' column
+                    # Execute the insertion
+                    cursor.execute(sql_insert, (material_id, time_value, col, row[col]))
+                    print(f"Inserted record: Material ID: {material_id}, Time Elapsed: {time_value}, Characteristic Name: {col}, Characteristic Value: {row[col]}")
+
+        conn.commit()
+        print(f"{data_type.upper()} data loaded successfully for material ID {material_id} from {file_path}")
     except Exception as e:
         conn.rollback()
-        print(f"Error loading TGA data from {file_path}: {e}")
+        print(f"Error loading {data_type.upper()} data from {file_path}: {e}")
+
 
 def load_pressure(file_path, conn):
     try:
@@ -192,7 +198,15 @@ def load_pressure(file_path, conn):
     except Exception as e:
         print("Error loading pressure data:", e)
 
-import csv
+def extract_material_id(filename):
+    """Extracts the material ID from the given filename, excluding the file extension."""
+    base_name = os.path.splitext(filename)[0]
+    parts = base_name.split('_')
+    if len(parts) >= 2:
+        return '_'.join(parts[:2]).lower()
+    else:
+        print(f"Unable to extract material ID from filename: {filename}")
+        return None
 
 def load_diameter(file_path, conn):
     try:
