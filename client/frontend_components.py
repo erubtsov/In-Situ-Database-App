@@ -9,6 +9,7 @@ from kivy.utils import platform
 import tkinter as tk
 from tkinter import filedialog
 from kivy.properties import BooleanProperty
+from kivy.utils import get_color_from_hex
 
 
 class ButtonDisplay(BoxLayout):
@@ -155,28 +156,32 @@ class ErrorPopup(Popup):
         self.on_retry()  # Call the retry function
         self.dismiss()  # Dismiss the error popup
 
-class QueryResultPopup(Popup):
-    def __init__(self, query_result, **kwargs):
-        super(QueryResultPopup, self).__init__(**kwargs)
-        self.title = "Query Result"
-        self.size_hint = (0.8, 0.8)
+class ViewUploadDetailsPopup(Popup):
+    def __init__(self, **kwargs):
+        super(ViewUploadDetailsPopup, self).__init__(**kwargs)
+        self.title = 'Custom Popup Window'
+        self.size_hint = (None, None)
+        self.size = (400, 400)  # Specify the size of the popup
+        self.content = Label(text='This is a custom popup!')
 
-        # Create a GridLayout for the content
+class ViewDataPopup(Popup):
+    def __init__(self, **kwargs):
+        super(ViewDataPopup, self).__init__(**kwargs)
+        self.title = "View Data"
+        self.size_hint = (0.6, 0.4)
+
         layout = BoxLayout(orientation='vertical', padding=10)
 
-        # Create a dropdown menu for query results
-        dropdown = DropDown()
+        label = Label(text='Click the link below to view data:')
+        layout.add_widget(label)
 
-        for result in query_result:
-            btn = Button(text=result, size_hint_y=None, height=44)
-            btn.bind(on_release=lambda btn: dropdown.select(btn.text))
-            dropdown.add_widget(btn)
-
-        # Create a button to trigger the dropdown
-        dropdown_button = Button(text='Query Results', size_hint=(None, None))
-        dropdown_button.bind(on_release=dropdown.open)
-        layout.add_widget(dropdown_button)
-
-        dropdown.bind(on_select=lambda instance, x: setattr(dropdown_button, 'text', x))
+        link_button = Button(text='Go to Web Application')
+        link_button.bind(on_press=lambda instance: self.open_link())
+        layout.add_widget(link_button)
 
         self.content = layout
+
+    def open_link(self):
+        import webbrowser
+        webbrowser.open('http://yourwebapp.com')  
+
