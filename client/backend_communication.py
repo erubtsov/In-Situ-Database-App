@@ -2,9 +2,8 @@ import socket
 import json
 
 class BackendCommunication:
-    def __init__(self, query_result_popup_callback):
+    def __init__(self):
         self.backend_socket = None
-        self.query_result_popup_callback = query_result_popup_callback
         print("BackendCommunication initialized")
 
     def connect_to_backend(self):
@@ -18,19 +17,23 @@ class BackendCommunication:
             print("Error connecting to backend:", e)
 
     def verify_password(self, password):
+        self.connect_to_backend()  # Ensure connection is established
         try:
-            if self.backend_socket is None:
-                self.connect_to_backend()
-
-            data = {"command": "VerifyPassword", "password": password}
-            self.backend_socket.send(json.dumps(data).encode())
-            response = self.backend_socket.recv(1024).decode()
-            if response == "Correct":
-                return True
-            else:
-                return False
+            if self.backend_socket:
+                data = {"password": password}  # Adjusted to match backend expectations
+                self.backend_socket.send(json.dumps(data).encode())
+                response = self.backend_socket.recv(1024).decode()
+                response_json = json.loads(response)  # Parse the JSON response
+                print(f"Received password verification response: {response}")
+                # Check the status in the JSON response
+                if response_json.get("status") == "Correct":
+                    print("Password correct. Connection established.")
+                    return True
+                else:
+                    print("Password incorrect. Please try again.")
+                    return False
         except Exception as e:
-            print("Error verifying password:", e)
+            print(f"Error verifying password: {e}")
             return False
 
     def upload_data(self, selected_directories):
@@ -42,39 +45,14 @@ class BackendCommunication:
                 "command": "DataUpload",
                 "selected_directories": selected_directories
             }
-            print("Sending data upload request to the backend:", data)  # Debug print
+            print("Sending data upload request to the backend:", data)
             self.backend_socket.send(json.dumps(data).encode())
             print("Data upload request sent to the backend.")
 
             # Receive confirmation from the server
             response = self.backend_socket.recv(1024).decode()
-            print("Received response from the server:", response)  # Debug print
+            print("Received response from the server:", response)
             if response == "DataUploaded":
                 print("Data uploaded successfully.")
-                # Optionally, you can trigger an event/callback to enable the upload button
         except Exception as e:
             print("Error uploading data:", e)
-
-    def retry_callback_with_arg(self, password):
-        self.verify_password(password)
-
-    def query_database(self):
-        try:
-            print("Query Database button clicked.")
-            if self.backend_socket is None:
-                self.connect_to_backend()
-
-            data = {"command": "QueryDatabase"}
-            print("Sending query to backend...")
-            self.backend_socket.send(json.dumps(data).encode())
-
-            query_result = self.backend_socket.recv(4096).decode()
-
-            try:
-                part_ids = json.loads(query_result)
-                print("Received query result from backend:", part_ids)
-                self.query_result_popup_callback(query_result=part_ids)
-            except json.JSONDecodeError as e:
-                print("Error decoding JSON:", e)
-        except Exception as e:
-            print("Error querying database:", e)
