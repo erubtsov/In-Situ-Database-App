@@ -4,86 +4,77 @@ BEGIN
     IF NOT EXISTS (
         SELECT 1
         FROM information_schema.schemata
-        WHERE schema_name = 'FilamentQuality'
+        WHERE schema_name = 'filamentquality'
     ) THEN
-        CREATE SCHEMA "FilamentQuality";
+        CREATE SCHEMA filamentquality;
     END IF;
 END$$;
 
--- Drop all existing tables
+-- Drop all existing tables only if there are tables to drop
 DO $$
+DECLARE
+    _drop_sql TEXT;
 BEGIN
-    IF EXISTS (
-        SELECT 1
-        FROM information_schema.tables
-        WHERE table_schema = 'FilamentQuality'
-    ) THEN
-	 	DROP TABLE IF EXISTS "FilamentQuality"."characteristics" CASCADE;
-        DROP TABLE IF EXISTS "FilamentQuality"."part_characteristics" CASCADE; -- Cascade to drop dependent objects
-        DROP TABLE IF EXISTS "FilamentQuality"."material_characteristics" CASCADE; -- Cascade to drop dependent objects
-        DROP TABLE IF EXISTS "FilamentQuality"."materials" CASCADE; -- Cascade to drop dependent objects
-        DROP TABLE IF EXISTS "FilamentQuality"."BenchTop_Filament_Diameter" CASCADE; -- Cascade to drop dependent objects
-        DROP TABLE IF EXISTS "FilamentQuality"."Live_Print_Data" CASCADE; -- Cascade to drop dependent objects
-        DROP TABLE IF EXISTS "FilamentQuality"."parts" CASCADE; -- Cascade to drop dependent objects
+    SELECT string_agg('DROP TABLE IF EXISTS ' || quote_ident(schemaname) || '.' || quote_ident(tablename) || ' CASCADE;', ' ')
+    INTO _drop_sql
+    FROM pg_tables
+    WHERE schemaname = 'filamentquality';
+
+    IF _drop_sql IS NOT NULL THEN
+        EXECUTE _drop_sql;
     END IF;
 END$$;
 
--- Exported from QuickDBD: https://www.quickdatabasediagrams.com/
--- Link to schema: https://app.quickdatabasediagrams.com/#/d/KSlYlm
-
-CREATE TABLE "FilamentQuality"."Live_Print_Data" (
-    "part_ID" varchar(50)   NOT NULL,
-    "time_stamp" real   NOT NULL,
-    "characteristic_name" varchar(100)   NOT NULL,
-    "characteristic_value" real   NOT NULL
+-- Create materials table with vendor
+CREATE TABLE filamentquality.materials (
+    material_id VARCHAR(50) NOT NULL,
+    vendor VARCHAR(50) NOT NULL,
+    PRIMARY KEY (material_id)
 );
 
-CREATE TABLE "FilamentQuality"."BenchTop_Filament_Diameter" (
-    "part_ID" varchar(50)   NOT NULL,
-    "position" real   NOT NULL,
-    "characteristic_name" varchar(100)   NOT NULL,
-    "characteristic_value" real   NOT NULL
+-- Create parts table with part type
+CREATE TABLE filamentquality.parts (
+    part_id VARCHAR(50) NOT NULL,
+    material_id VARCHAR(50) NOT NULL,
+    part_type VARCHAR(50) NOT NULL,
+    PRIMARY KEY (part_id),
+    FOREIGN KEY (material_id) REFERENCES filamentquality.materials(material_id)
 );
 
-CREATE TABLE "FilamentQuality"."parts" (
-    "part_ID" varchar(50)   NOT NULL,
-    "material_ID" varchar(50)   NOT NULL,
-    "part_type" varchar(50) NOT NULL,
-    CONSTRAINT "pk_parts" PRIMARY KEY ("part_ID") -- Adding primary key constraint
+-- Create BenchTop Filament Diameter table
+CREATE TABLE filamentquality.BenchTop_Filament_Diameter (
+    part_id VARCHAR(50) NOT NULL,
+    position REAL NOT NULL,
+    characteristic_name VARCHAR(100) NOT NULL,
+    characteristic_value REAL NOT NULL,
+    FOREIGN KEY (part_id) REFERENCES filamentquality.parts(part_id)
 );
 
-CREATE TABLE "FilamentQuality"."part_characteristics" (
-    "part_ID" varchar(50)   NOT NULL,
-    "time_elapsed" real   NOT NULL,
-    "characteristic_name" varchar(100)   NOT NULL,
-    "characteristic_value" real   NOT NULL
+-- Create Live Print Data table
+CREATE TABLE filamentquality.Live_Print_Data (
+    part_id VARCHAR(50) NOT NULL,
+    time_stamp REAL NOT NULL,
+    characteristic_name VARCHAR(100) NOT NULL,
+    characteristic_value REAL NOT NULL,
+    FOREIGN KEY (part_id) REFERENCES filamentquality.parts(part_id)
 );
 
-CREATE TABLE "FilamentQuality"."material_characteristics" (
-    "material_ID" varchar(50)   NOT NULL,
-    "time_elapsed" real   NOT NULL,
-    "characteristic_name" varchar(100)   NOT NULL,
-    "characteristic_value" real   NOT NULL
+-- Create part characteristics table
+CREATE TABLE filamentquality.part_characteristics (
+    part_id VARCHAR(50) NOT NULL,
+    time_elapsed REAL NOT NULL,
+    characteristic_name VARCHAR(100) NOT NULL,
+    characteristic_value REAL NOT NULL,
+    FOREIGN KEY (part_id) REFERENCES filamentquality.parts(part_id)
 );
 
-CREATE TABLE "FilamentQuality"."materials" (
-    "material_id" varchar(50)   NOT NULL,
-    CONSTRAINT "pk_materials" PRIMARY KEY (
-        "material_id"
-     )
+-- Create material thermal characteristics table with an auto-incrementing primary key
+CREATE TABLE filamentquality.material_thermal_characteristics (
+    id SERIAL PRIMARY KEY,
+    material_id VARCHAR(50) NOT NULL,
+    dsc_ramp TEXT NOT NULL,
+    time_min REAL NOT NULL,
+    temperature REAL NOT NULL,
+    heat_flow REAL NOT NULL,
+    FOREIGN KEY (material_id) REFERENCES filamentquality.materials(material_id)
 );
-
-ALTER TABLE "FilamentQuality"."Live_Print_Data" ADD CONSTRAINT "fk_Live_Print_Data_part_ID" FOREIGN KEY("part_ID")
-REFERENCES "FilamentQuality"."parts" ("part_ID");
-
-ALTER TABLE "FilamentQuality"."BenchTop_Filament_Diameter" ADD CONSTRAINT "fk_BenchTop_Filament_Diameter_part_ID" FOREIGN KEY("part_ID")
-REFERENCES "FilamentQuality"."parts" ("part_ID");
-
-ALTER TABLE "FilamentQuality"."parts" ADD CONSTRAINT "fk_parts_material_ID" FOREIGN KEY("material_ID")
-REFERENCES "FilamentQuality"."materials" ("material_id");
-
-ALTER TABLE "FilamentQuality"."part_characteristics" ADD CONSTRAINT "fk_Part_characteristics_part_ID" FOREIGN KEY("part_ID")
-REFERENCES "FilamentQuality"."parts" ("part_ID");
-
-ALTER TABLE "FilamentQuality"."material_characteristics" ADD CONSTRAINT "fk_material_characteristics_material_ID" FOREIGN KEY("material_ID")
-REFERENCES "FilamentQuality"."materials" ("material_id");
